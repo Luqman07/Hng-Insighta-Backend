@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: node -e "require('./src/app.js')" &
+        env:
+          PORT: 3000
+          JWT_SECRET: test_secret
+          JWT_REFRESH_SECRET: test_refresh_secret
+          GITHUB_CLIENT_ID: test
+          GITHUB_CLIENT_SECRET: test
+          GITHUB_CLI_CLIENT_ID: test
+          GITHUB_CLI_CLIENT_SECRET: test
+          ADMIN_USERS: ""
+      - run: sleep 2 && curl -f http://localhost:3000/health
