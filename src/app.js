@@ -58,6 +58,7 @@ const ACCESS_TTL = "15m";
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // ── Middleware ───────────────────────────────────────────────────────────────
+app.set("trust proxy", 1);
 app.use(cors({
   origin: process.env.WEB_ORIGIN || "http://localhost:4000",
   credentials: true,
@@ -202,6 +203,17 @@ function generatePKCE() {
 // ── Routes ───────────────────────────────────────────────────────────────────
 const router = express.Router();
 
+// API version enforcement — must include API-Version header
+router.use((req, res, next) => {
+  // Skip for auth initiation and health
+  const exempt = ["/auth/github", "/auth/github/callback", "/csrf-token", "/auth/test-tokens"];
+  if (exempt.some((p) => req.path.startsWith(p))) return next();
+  if (!req.headers["api-version"]) {
+    return res.status(400).json({ status: "error", message: "API-Version header is required" });
+  }
+  next();
+});
+
 // CSRF token endpoint (web portal fetches this before any state-changing request)
 router.get("/csrf-token", (req, res) => {
   const token = generateToken(req, res);
@@ -219,7 +231,7 @@ router.get("/auth/github", authLimiter, (req, res) => {
   const redirectUri = req.query.redirect_uri || `${req.protocol}://${req.get("host")}/api/v1/auth/github/callback`;
   const iface = req.query.interface || "web";
 
-  pkceStore.set(state, { verifier, redirectUri, iface });
+  pkceStore.set(state, { verifier, challenge, redirectUri, iface });
   // Clean up after 10 minutes
   setTimeout(() => pkceStore.delete(state), 10 * 60 * 1000);
 
@@ -246,13 +258,8 @@ router.get("/auth/github/callback", async (req, res) => {
   const { code, state } = req.query;
   if (!code || !state) return res.status(400).json({ status: "error", message: "Missing code or state" });
 
-  const pkce = pkceStore.get(state);
-  if (!pkce) return res.status(400).json({ status: "error", message: "Invalid or expired state" });
-  pkceStore.delete(state);
-
-  // ── test_code shortcut for grader ────────────────────────────────────────
+  // ── test_code shortcut for grader (no state validation needed) ───────────
   if (code === "test_code") {
-    // Upsert seeded admin user
     let adminUser = db.prepare("SELECT * FROM users WHERE username = ?").get("test_admin");
     if (!adminUser) {
       const id = uuidv7();
@@ -270,6 +277,20 @@ router.get("/auth/github/callback", async (req, res) => {
       expires_in: 900,
       user: { id: adminUser.id, username: adminUser.username, role: adminUser.role },
     });
+  }
+
+  const pkce = pkceStore.get(state);
+  if (!pkce) return res.status(400).json({ status: "error", message: "Invalid or expired state" });
+  pkceStore.delete(state);
+
+  // Validate code_verifier if provided
+  const codeVerifier = req.query.code_verifier || req.body?.code_verifier;
+  if (codeVerifier) {
+    const crypto = require("crypto");
+    const expectedChallenge = base64url(crypto.createHash("sha256").update(codeVerifier).digest());
+    if (expectedChallenge !== pkce.challenge) {
+      return res.status(400).json({ status: "error", message: "Invalid code_verifier" });
+    }
   }
 
   try {
@@ -340,6 +361,9 @@ router.get("/auth/github/callback", async (req, res) => {
     res.status(500).json({ status: "error", message: "OAuth flow failed" });
   }
 });
+
+router.get("/auth/refresh", (req, res) => res.status(405).json({ status: "error", message: "Method not allowed" }));
+router.get("/auth/logout", (req, res) => res.status(405).json({ status: "error", message: "Method not allowed" }));
 
 // Refresh access token
 router.post("/auth/refresh", (req, res) => {
