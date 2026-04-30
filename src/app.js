@@ -13,7 +13,7 @@ const { parseNaturalLanguage } = require("./nlp");
 
 configDotenv();
 
-const db = new Database("db.sqlite");
+const db = new Database(process.env.DB_PATH || "db.sqlite");
 
 // ── Schema ──────────────────────────────────────────────────────────────────
 db.exec(`

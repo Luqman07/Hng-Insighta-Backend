@@ -4,7 +4,7 @@
   "description": "Insighta Labs+ Backend — Stage 3",
   "main": "src/app.js",
   "scripts": {
-    "start": "node src/app.js",
+    "start": "node src/seed.js && node src/app.js",
     "dev": "nodemon src/app.js",
     "seed": "node src/seed.js"
   },

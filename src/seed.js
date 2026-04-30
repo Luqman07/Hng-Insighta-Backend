@@ -11,7 +11,7 @@ if (!fs.existsSync(seedFile)) {
   process.exit(1);
 }
 
-const db = new Database(path.join(__dirname, "..", "db.sqlite"));
+const db = new Database(process.env.DB_PATH || path.join(__dirname, "..", "db.sqlite"));
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS profiles (
