@@ -203,17 +203,6 @@ function generatePKCE() {
 // ── Routes ───────────────────────────────────────────────────────────────────
 const router = express.Router();
 
-// API version enforcement — must include API-Version header
-router.use((req, res, next) => {
-  // Skip for auth initiation and health
-  const exempt = ["/auth/github", "/auth/github/callback", "/csrf-token", "/auth/test-tokens"];
-  if (exempt.some((p) => req.path.startsWith(p))) return next();
-  if (!req.headers["api-version"]) {
-    return res.status(400).json({ status: "error", message: "API-Version header is required" });
-  }
-  next();
-});
-
 // CSRF token endpoint (web portal fetches this before any state-changing request)
 router.get("/csrf-token", (req, res) => {
   const token = generateToken(req, res);
@@ -283,14 +272,15 @@ router.get("/auth/github/callback", async (req, res) => {
   if (!pkce) return res.status(400).json({ status: "error", message: "Invalid or expired state" });
   pkceStore.delete(state);
 
-  // Validate code_verifier if provided
+  // Validate code_verifier — required
   const codeVerifier = req.query.code_verifier || req.body?.code_verifier;
-  if (codeVerifier) {
-    const crypto = require("crypto");
-    const expectedChallenge = base64url(crypto.createHash("sha256").update(codeVerifier).digest());
-    if (expectedChallenge !== pkce.challenge) {
-      return res.status(400).json({ status: "error", message: "Invalid code_verifier" });
-    }
+  if (!codeVerifier) {
+    return res.status(400).json({ status: "error", message: "code_verifier is required" });
+  }
+  const crypto = require("crypto");
+  const expectedChallenge = base64url(crypto.createHash("sha256").update(codeVerifier).digest());
+  if (expectedChallenge !== pkce.challenge) {
+    return res.status(400).json({ status: "error", message: "Invalid code_verifier" });
   }
 
   try {
@@ -430,7 +420,7 @@ router.get("/auth/test-tokens", (req, res) => {
 
   const adminAccess = signAccess(admin);
   const adminRefresh = signRefresh(admin);
-  storeRefresh(admin.id, adminAccess);
+  storeRefresh(admin.id, adminRefresh);
   const analystAccess = signAccess(analyst);
 
   res.json({
@@ -591,6 +581,17 @@ router.patch("/users/:id/role", authenticate, requireRole("admin"), (req, res) =
 });
 
 // ── Mount versioned router ───────────────────────────────────────────────────
+
+// API-Version header required for all /api/* except auth and health
+app.use(["/api/v1", "/api"], (req, res, next) => {
+  const exempt = ["/auth/github", "/auth/github/callback", "/csrf-token", "/auth/test-tokens", "/health"];
+  if (exempt.some((p) => req.path.startsWith(p))) return next();
+  if (!req.headers["api-version"]) {
+    return res.status(400).json({ status: "error", message: "API-Version header is required" });
+  }
+  next();
+});
+
 app.use("/api/v1", router);
 app.use("/api", router);
 
