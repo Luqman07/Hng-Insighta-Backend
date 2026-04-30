@@ -68,19 +68,20 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(morgan("combined"));
 
-// Rate limiting
+// Rate limiting — skip for /api/*/auth/github (has its own stricter limiter)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.path.includes("/auth/github"),
   message: { status: "error", message: "Too many requests, please try again later." },
 });
 app.use(limiter);
 
-// Stricter rate limit for auth endpoints
+// Stricter rate limit for /auth/github
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+  windowMs: 60 * 1000,
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
@@ -582,11 +583,9 @@ router.patch("/users/:id/role", authenticate, requireRole("admin"), (req, res) =
 
 // ── Mount versioned router ───────────────────────────────────────────────────
 
-// API-Version header required for all /api/* except auth and health
+// API-Version header required only for /profiles endpoints
 app.use(["/api/v1", "/api"], (req, res, next) => {
-  const exempt = ["/auth/github", "/auth/github/callback", "/csrf-token", "/auth/test-tokens", "/health"];
-  if (exempt.some((p) => req.path.startsWith(p))) return next();
-  if (!req.headers["api-version"]) {
+  if (req.path.startsWith("/profiles") && !req.headers["api-version"]) {
     return res.status(400).json({ status: "error", message: "API-Version header is required" });
   }
   next();
