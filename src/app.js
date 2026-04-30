@@ -401,7 +401,8 @@ router.get("/auth/test-tokens", (req, res) => {
   });
 });
 
-
+// Current user
+router.get("/auth/me", authenticate, (req, res) => {
   const user = db.prepare("SELECT id, username, avatar_url, role, created_at FROM users WHERE id = ?").get(req.user.sub);
   if (!user) return res.status(404).json({ status: "error", message: "User not found" });
   res.json({ status: "success", data: user });
